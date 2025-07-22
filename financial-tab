@@ -1,0 +1,672 @@
+import { DeleteOutlined } from "@mui/icons-material";
+import {
+  Box,
+  Button,
+  Card,
+  CardHeader,
+  Divider,
+  Grid,
+  Theme,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+} from "@mui/material";
+import { format } from "date-fns";
+import type { NextPage } from "next";
+import { ChangeEvent, useContext, useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
+import { useTranslation } from "react-i18next";
+import ConfirmationDialog from "src/components/confirmation-dialog";
+import AddAdditionalChargesModal from "src/components/modal/add-additional-charges";
+import AddCustomPricingModal from "src/components/modal/add-custom-pricing";
+import EditNotes from "src/components/modal/edit-notes";
+import { PlateNumberView } from "src/components/platenumber-view";
+import { PropertyList } from "src/components/property-list";
+import { PropertyListItem } from "src/components/property-list-item";
+import { SuperTable } from "src/components/widgets/super-table";
+import { TripContext } from "src/contexts/trip-context";
+import { useAdditionalCharges } from "src/hooks/book/use-additional-charges";
+import { useRestrict } from "src/hooks/permission-manager/use-restrict";
+import { useUserType } from "src/hooks/use-use-type";
+import { Download } from "src/icons/download";
+import { Eye } from "src/icons/eye";
+import { InformationCircleOutlined as InformationCircleOutlinedIcon } from "src/icons/information-circle-outlined";
+import { Pencil } from "src/icons/pencil";
+import { PencilAlt as PencilAltIcon } from "src/icons/pencil-alt";
+import { MoleculeType } from "src/permission-manager";
+import { TripBookingStatus } from "src/types/enums/trip-status";
+import { currencyFormatter } from "src/utils/currency-formatter";
+import AddCustomPricing from "../add-custom-pricing";
+import PlanGrid from "../plan-grid";
+import { OverviewCard } from "../overview-card";
+import { ArrowRight as ArrowRightIcon } from "../../../icons/arrow-right";
+import { useBooking } from "src/hooks/book/use-booking";
+import Link from "next/link";
+
+const beneficiaryOption = {
+  platform: "Wajeeh",
+  carrier: "Carrier",
+};
+
+export const TripsFinancialsTab: NextPage = () => {
+  const { t } = useTranslation();
+
+  const particularOptions = [
+    t("Extra Kms covered"),
+    t("Priority Charges"),
+    t("Convenience Charges"),
+  ];
+
+  const mdUp = useMediaQuery((theme: Theme) => theme.breakpoints.up("md"));
+  const { userType } = useUserType();
+  const align = mdUp ? "horizontal" : "vertical";
+  const context = useContext<any>(TripContext);
+  const { getSingle, entity: bookingEntity } = useBooking();
+  const [selected, setSelected] = useState<string>("master");
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState<number>(0);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [openEditNote, setOpenEditNote] = useState(false);
+  const [openCustom, setOpenCustom] = useState(false);
+  const [mode, setMode] = useState("add");
+  const [planData, setPlanData] = useState({});
+  const [showDialog, setShowDialog] = useState(false);
+  const { addCharges: deleteCharges } = useAdditionalCharges("trip");
+  const [additionalAmount, setAdditionalAmount] = useState(null);
+  const { checkRestriction } = useRestrict();
+  const [masterPricing, setMasterPricing] = useState({
+    amount: "",
+    applied: false,
+    carrierShare: "",
+    distance: "",
+    type: "master",
+    wajeehShare: "",
+  });
+
+  const [shipperPricing, setShipperPricing] = useState({
+    amount: "",
+    applied: false,
+    carrierShare: "",
+    distance: "",
+    type: "shipper",
+    wajeehShare: "",
+  });
+
+  const [customPricing, setCustomPricing] = useState({
+    amount: "",
+    applied: false,
+    carrierShare: "",
+    distance: "",
+    type: "custom",
+    wajeehShare: "",
+  });
+
+  const completeCancelTripStatus = () => {
+    return (
+      context?.status == TripBookingStatus.Cancelled ||
+      context?.status == TripBookingStatus.Completed
+    );
+  };
+
+  const handlePageChange = (newPage: number): void => {
+    setPage(newPage);
+  };
+
+  const handleRowsPerPageChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ): void => {
+    setPage(0);
+    setRowsPerPage(parseInt(event.target.value, 10));
+  };
+
+  const transformedCharges = useMemo(() => {
+    const arr = [];
+    context?.billing?.additionalCharges?.map((charge, idx) => {
+      arr.push({
+        _id: `${idx}`,
+        key: idx,
+        name: charge?.name,
+        beneficiary: beneficiaryOption[charge?.type],
+        date: format(new Date(), "dd/MM/yyyy"),
+        amount: currencyFormatter(charge?.amount),
+        actions: !completeCancelTripStatus() && (
+          <DeleteOutlined
+            onClick={() => {
+              setAdditionalAmount(idx);
+              setShowDialog(true);
+            }}
+          />
+        ),
+      });
+    });
+    return arr;
+  }, [context?.billing]);
+
+  useEffect(() => {
+    context?.pricings?.map((price) => {
+      if (price?.applied) {
+        setSelected(price?.type);
+      }
+
+      if (price?.type === "master") setMasterPricing(price);
+      else if (price?.type === "shipper") setShipperPricing(price);
+      else setCustomPricing(price);
+    });
+
+    if (context?.booking) getSingle({ bookingId: context?.booking });
+  }, [context]);
+
+  return (
+    <>
+      <AddCustomPricingModal
+        id={context?._id}
+        open={openCustom}
+        kind="trip"
+        toggle={() => setOpenCustom(!openCustom)}
+        onAdd={() => {
+          setSelected("custom");
+          context?.refetch();
+        }}
+        plan={mode == "edit" ? planData : null}
+      />
+      <Box component="main" sx={{ mt: 4 }}>
+        <>
+          {false && (
+            <Card>
+              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                <CardHeader title={t("Financial Details")} />
+
+                {userType === "wajeeh" && (
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <Button
+                      startIcon={<PencilAltIcon fontSize="small" />}
+                      sx={{ mr: 2 }}
+                      disabled={
+                        completeCancelTripStatus() ||
+                        checkRestriction(MoleculeType["trip:create"])
+                      }
+                    >
+                      {t("Edit")}
+                    </Button>
+                  </Box>
+                )}
+
+                {userType === "shipper" && (
+                  <Box sx={{ display: "flex", alignItems: "center", mr: 2 }}>
+                    <Button
+                      variant="outlined"
+                      endIcon={<Eye fontSize="small" />}
+                      sx={{ mr: 2 }}
+                      disabled={context?.status == TripBookingStatus.Cancelled}
+                    >
+                      {t("View Invoice")}
+                    </Button>
+
+                    <Button
+                      variant="contained"
+                      endIcon={<Download fontSize="medium" />}
+                      sx={{ m: 1 }}
+                      disabled={context?.status == TripBookingStatus.Cancelled}
+                    >
+                      {t("Download Invoice")}
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+              <Divider />
+              <PropertyList>
+                <PropertyListItem
+                  align={align}
+                  divider
+                  label={t("Fare")}
+                  value={`${currencyFormatter(
+                    context?.billing.totalAmount
+                  )} ${t("for the trip")}`}
+                />
+
+                <PropertyListItem
+                  align={align}
+                  divider
+                  label={t("Payment Terms")}
+                  value={t("Immediate")}
+                />
+
+                <PropertyListItem
+                  align={align}
+                  divider
+                  label={t("Driver")}
+                  value={
+                    context?.driver?.name
+                      ? context?.driver?.name
+                      : t("Not Assigned")
+                  }
+                />
+
+                <PropertyListItem
+                  align={align}
+                  divider
+                  label={t("Truck No.")}
+                  value={
+                    <PlateNumberView
+                      plateNumber={context?.truck?.plateNumber}
+                    />
+                  }
+                />
+              </PropertyList>
+            </Card>
+          )}
+          {userType === "wajeeh" && (
+            <>
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <OverviewCard
+                    headTitle={t("Shipper payment status, (incl.vat)")}
+                    headValue={
+                      bookingEntity?.invoiceGenerate ||
+                      bookingEntity?.billing?.paymentMethod == "wallet"
+                        ? t("Paid")
+                        : t("Pending")
+                    }
+                    headRouteTitle={
+                      <Typography
+                        color="textPrimary"
+                        variant="h6"
+                        component="h4"
+                      >
+                        {currencyFormatter(bookingEntity?.billing?.totalAmount)}
+                      </Typography>
+                    }
+                    bodyTitle={
+                      t("Booking amount for") +
+                      " " +
+                      (bookingEntity?.numberOfTrucks || 0) +
+                      " " +
+                      t("trucks")
+                    }
+                    bodyValues={[]}
+                    ctaButton={
+                      <>
+                        <Button
+                          endIcon={<ArrowRightIcon fontSize="small" />}
+                          LinkComponent={Link}
+                          href="/financials/invoices"
+                        >
+                          {t("Shipper Financials")}
+                        </Button>
+                      </>
+                    }
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <OverviewCard
+                    headTitle={t("Carrier payment status")}
+                    headValue={
+                      bookingEntity?.invoiceGenerate ||
+                      bookingEntity?.billing?.paymentMethod == "wallet"
+                        ? t("Paid")
+                        : t("Pending")
+                    }
+                    headRouteTitle={
+                      <Typography
+                        color="textPrimary"
+                        variant="h6"
+                        component="h4"
+                      >
+                        {currencyFormatter(context?.billing?.baseTotal)}
+                      </Typography>
+                    }
+                    bodyTitle={t("")}
+                    bodyValues={[]}
+                    ctaButton={
+                      <>
+                        <Button
+                          endIcon={<ArrowRightIcon fontSize="small" />}
+                          LinkComponent={Link}
+                          href="/payouts"
+                        >
+                          {t("Carrier Financials")}
+                        </Button>
+                      </>
+                    }
+                  />
+                </Grid>
+              </Grid>
+              <Card sx={{ mt: 4 }}>
+                <CardHeader title={t("Financial Details")} />
+                <Typography
+                  variant="body2"
+                  color="neutral.500"
+                  sx={{ mx: 3, mt: -3 }}
+                >
+                  {t(
+                    "The pricing here will be applied for the selected trip only."
+                  )}
+                </Typography>
+
+                <Box sx={{ mx: 3, mt: 3, mb: 4 }}>
+                  <Grid container spacing={3}>
+                    <PlanGrid
+                      id={context?._id}
+                      onEdit={(price) => setPlanData(price)}
+                      key={1}
+                      plan={masterPricing}
+                      type="master"
+                      selected={selected}
+                      setSelected={setSelected}
+                      kind="trip"
+                      status={completeCancelTripStatus()}
+                      disabledCard={
+                        completeCancelTripStatus() ||
+                        checkRestriction(MoleculeType["trip:pricing:update"])
+                      }
+                    />
+                    <PlanGrid
+                      id={context?._id}
+                      onEdit={(price) => setPlanData(price)}
+                      key={1}
+                      plan={shipperPricing}
+                      selected={selected}
+                      type="shipper"
+                      setSelected={setSelected}
+                      kind="trip"
+                      status={completeCancelTripStatus()}
+                      disabledCard={
+                        completeCancelTripStatus() ||
+                        checkRestriction(MoleculeType["trip:pricing:update"])
+                      }
+                    />
+                    {parseInt(customPricing?.amount) > 0 ? (
+                      <PlanGrid
+                        id={context?._id}
+                        onEdit={(price) => {
+                          setMode("edit");
+                          setPlanData(price);
+                          setOpenCustom(true);
+                        }}
+                        key={1}
+                        type="custom"
+                        plan={customPricing}
+                        selected={selected}
+                        setSelected={setSelected}
+                        kind="trip"
+                        status={completeCancelTripStatus()}
+                        disabledCard={
+                          completeCancelTripStatus() ||
+                          checkRestriction(MoleculeType["trip:pricing:update"])
+                        }
+                      />
+                    ) : (
+                      <AddCustomPricing
+                        onClick={() => setOpenCustom(true)}
+                        disabledCard={
+                          completeCancelTripStatus() ||
+                          checkRestriction(MoleculeType["trip:pricing:update"])
+                        }
+                      />
+                    )}
+                  </Grid>
+                </Box>
+
+                <Divider />
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <CardHeader title={t("Pricing Details")} />
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  ></div>
+                </Box>
+
+                <Box
+                  sx={{
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    mx: 3,
+                  }}
+                >
+                  <PropertyList>
+                    <PropertyListItem
+                      align={align}
+                      divider
+                      label={t("Base Price")}
+                      value={
+                        context?.pricings?.length > 0
+                          ? `${
+                              selected == "master"
+                                ? currencyFormatter(masterPricing?.amount)
+                                : selected == "shipper"
+                                ? currencyFormatter(shipperPricing?.amount)
+                                : currencyFormatter(customPricing?.amount)
+                            }`
+                          : `SAR 0`
+                      }
+                    />
+                    <PropertyListItem
+                      align={align}
+                      divider
+                      label={t("To Carrier")}
+                      value={
+                        context?.pricings?.length > 0
+                          ? `${
+                              selected == "master"
+                                ? currencyFormatter(masterPricing?.carrierShare)
+                                : selected == "shipper"
+                                ? currencyFormatter(
+                                    shipperPricing?.carrierShare
+                                  )
+                                : currencyFormatter(customPricing?.carrierShare)
+                            }`
+                          : `SAR 0`
+                      }
+                    />
+                    <PropertyListItem
+                      align={align}
+                      label={t("Wajeeh Margin")}
+                      value={
+                        context?.pricings?.length > 0
+                          ? `${
+                              selected == "master"
+                                ? currencyFormatter(masterPricing?.wajeehShare)
+                                : selected == "shipper"
+                                ? currencyFormatter(shipperPricing?.wajeehShare)
+                                : currencyFormatter(customPricing?.wajeehShare)
+                            }`
+                          : `SAR 0`
+                      }
+                    />
+                  </PropertyList>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    mt: 2,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <CardHeader title={t("Additional Charges")} />
+                    <Tooltip
+                      title={t(
+                        "Additional price will be passed on to the carrier"
+                      )}
+                    >
+                      <InformationCircleOutlinedIcon
+                        sx={{ color: "primary.main", ml: -2 }}
+                      />
+                    </Tooltip>
+                  </Box>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Button
+                      variant="outlined"
+                      sx={{ mr: 4 }}
+                      onClick={() => setOpen(!open)}
+                      disabled={
+                        completeCancelTripStatus() ||
+                        checkRestriction(MoleculeType["trip:pricing:update"])
+                      }
+                    >
+                      {t("Add")}
+                    </Button>
+                  </div>
+                </Box>
+
+                <Box
+                  sx={{
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 0.8,
+                    mx: 3,
+                  }}
+                >
+                  <SuperTable
+                    showCheckbox={false}
+                    moreOptions={[]}
+                    showMore={false}
+                    isLoading={false}
+                    total={1}
+                    onPageChange={handlePageChange}
+                    onRowsPerPageChange={handleRowsPerPageChange}
+                    rowsPerPage={rowsPerPage}
+                    page={page}
+                    headers={[
+                      {
+                        key: "name",
+                        label: t("Particular"),
+                      },
+                      {
+                        key: "beneficiary",
+                        label: t("Beneficiary"),
+                      },
+                      {
+                        key: "amount",
+                        label: t("Amount"),
+                      },
+                      {
+                        key: "date",
+                        label: t("Date"),
+                      },
+                      {
+                        key: "actions",
+                        label: "",
+                      },
+                    ]}
+                    items={transformedCharges}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    mx: 3,
+                    mb: 3,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{ mt: 3, fontWeight: "bold" }}
+                    >
+                      {t("Notes")}
+                    </Typography>
+                    {/* <ol style={{ paddingLeft: 15 }}>
+                    {context?.billing?.notes?.map((note, key) => {
+                      return <li key={key}>{note}</li>;
+                    })}
+                  </ol> */}
+                    <div
+                      dangerouslySetInnerHTML={{
+                        __html: context?.billing?.notes,
+                      }}
+                    />
+                    {context?.billing?.notes?.length <= 0 && (
+                      <li>{t("No notes available")}</li>
+                    )}
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <Button
+                      onClick={() => setOpenEditNote(true)}
+                      startIcon={<Pencil fontSize="small" />}
+                      sx={{ mr: 2 }}
+                      disabled={
+                        completeCancelTripStatus() ||
+                        checkRestriction(MoleculeType["trip:create"])
+                      }
+                    >
+                      {t("Edit")}
+                    </Button>
+                  </Box>
+                </Box>
+              </Card>
+            </>
+          )}
+        </>
+      </Box>
+      <AddAdditionalChargesModal
+        particularOptions={particularOptions}
+        kind="trip"
+        open={open}
+        charges={context?.billing?.additionalCharges}
+        toggle={() => {
+          context.refetch();
+          setOpen(!open);
+        }}
+        id={context?._id}
+      />
+      <EditNotes
+        open={openEditNote}
+        id={context?._id}
+        toggle={() => {
+          context?.refetch();
+          setOpenEditNote(!openEditNote);
+        }}
+        notes={context?.billing?.notes[0]}
+        kind="trip"
+      />
+      <ConfirmationDialog
+        show={showDialog}
+        toggle={() => setShowDialog(!showDialog)}
+        onOk={async () => {
+          const charges = context?.billing?.additionalCharges;
+          charges.splice(additionalAmount, 1);
+          try {
+            const data = {
+              body: {
+                additionalCharges: [...charges],
+              },
+              params: {
+                bookingId: context?._id,
+              },
+            };
+            await deleteCharges({ ...data });
+            toast.success("Charges deleted");
+            setShowDialog(!showDialog);
+            context?.refetch();
+          } catch (error) {
+            toast.error(error.message);
+          }
+        }}
+        okButtonText={t("Yes, Delete")}
+        cancelButtonText={t("Cancel")}
+        title={t("Confirmation")}
+        text={t("Are you sure you want to delete this?")}
+      />
+    </>
+  );
+};
