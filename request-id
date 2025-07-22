@@ -1,0 +1,536 @@
+import {
+  Box,
+  Chip,
+  Container,
+  Grid,
+  Link,
+  Stack,
+  Typography,
+} from "@mui/material";
+import type { NextPage } from "next";
+import Head from "next/head";
+import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { AuthGuard } from "src/components/authentication/auth-guard";
+import { DashboardLayout } from "src/components/dashboard/dashboard-layout";
+import { useUserType } from "src/hooks/use-use-type";
+import { MoleculeType } from "src/permission-manager";
+import { ArrowLeft as ArrowLeftIcon } from "src/icons/arrow-left";
+import { XCircle as XCircleIcon } from "src/icons/x-circle";
+import { Clock as ClockIcon } from "src/icons/clock";
+import { gtm } from "src/lib/gtm";
+import { RequestTimeline } from "src/components/request-timeline";
+import ConfirmationDialog from "src/components/confirmation-dialog";
+import RestrictPageMultiple from "src/components/permission-manager/restrict-page-multiple";
+import { ApprovalDialog } from "src/components/estimate-requests/approval-dialog";
+
+import {
+  RequestOverview,
+  PricingBreakdown,
+  PricingAdjustment,
+  MasterPricingForm,
+  ActionButtons,
+  PersonnelInformation,
+  SidebarInformation,
+} from "src/components/estimate-requests/details";
+
+import { useEntity } from "src/hooks/use-entity";
+import toast from "react-hot-toast";
+import { USER_TYPES } from "src/utils/constants";
+import { PRICING_REQUEST } from "src/types/pricing-request";
+import { useApproveCarrierPricingRequest } from "src/hooks/estimate-requests/use-approve-carrier-pricing-request";
+import { useApproveShipperPricingRequest } from "src/hooks/estimate-requests/use-approve-shipper-pricing-request";
+import { useCancelPricingRequest } from "src/hooks/estimate-requests/use-cancel-pricing-request";
+import { useApproveEstimateRequest } from "src/hooks/estimate-requests/use-approve-estimate-request";
+
+type Status = "new" | "cancelled" | "deal-created";
+
+const statusLabelMap: Record<Status, string> = {
+  new: "New",
+  cancelled: "Cancelled",
+  "deal-created": "Booking created",
+};
+
+const statusColorMap: Record<Status, string> = {
+  new: "primary",
+  cancelled: "error",
+  "deal-created": "success",
+};
+
+const EstimateRequestDetail: NextPage = () => {
+  const { t } = useTranslation();
+  const router = useRouter();
+  const { requestId } = router.query;
+  const { userType } = useUserType();
+
+  const [showDialog, setShowDialog] = useState<{
+    show: boolean;
+    title: string;
+    text: string;
+    action: string;
+  }>({
+    show: false,
+    title: "",
+    text: "",
+    action: "",
+  });
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+  const [newPricingRequestAmount, setNewPricingRequestAmount] =
+    useState<number>(0);
+  const [baseFare, setBaseFare] = useState<number>(0);
+  const [wajeehShare, setWajeehShare] = useState<string>("");
+  const [originalWajeehShare, setOriginalWajeehShare] = useState<number>(0);
+  const [wajeehShareError, setWajeehShareError] = useState<string>("");
+
+  const { entity: data, findOne, loading } = useEntity("estimate");
+  const { findOne: findTruckType, entity: truckType } = useEntity(
+    "truck-type",
+    "all"
+  );
+  const { create: createMasterPricing } = useEntity("pricing", "all");
+  const { create: createBooking } = useEntity("book", "all");
+
+  const { approveEstimateRequest } = useApproveEstimateRequest();
+  const { approveCarrierPricingRequest } = useApproveCarrierPricingRequest();
+  const { approveShipperPricingRequest } = useApproveShipperPricingRequest();
+  const { cancelPricingRequest } = useCancelPricingRequest();
+
+  useEffect(() => {
+    gtm.push({ event: "page_view" });
+  }, []);
+
+  useEffect(() => {
+    if (requestId) {
+      findOne(requestId as string);
+    }
+  }, [requestId]);
+
+  useEffect(() => {
+    if (data?.newPricingRequestAmount) {
+      setNewPricingRequestAmount(data.newPricingRequestAmount);
+      let wajeehShareFromPricing = 0;
+
+      if (data?.type === PRICING_REQUEST.SHIPPER_PRICING) {
+        wajeehShareFromPricing = data?.bookingPricings?.find(
+          (p) => p?.applied
+        )?.wajeehShare;
+      } else {
+        wajeehShareFromPricing = data?.bookingRef?.pricings?.find(
+          (p) => p?.applied
+        )?.wajeehShare;
+      }
+
+      setOriginalWajeehShare(wajeehShareFromPricing || 0);
+
+      setWajeehShare(wajeehShareFromPricing?.toString() || "");
+
+      if (data?.approvedAmount && data?.status === "deal-created") {
+        if (data?.type === PRICING_REQUEST.SHIPPER_PRICING) {
+          setBaseFare(data?.approvedAmount);
+        } else if (data?.type === PRICING_REQUEST.CARRIER_PRICING) {
+          if (userType === USER_TYPES.CARRIER) {
+            setBaseFare(data?.approvedAmount - data?.wajeehShare);
+          } else {
+            setBaseFare(data?.approvedAmount);
+          }
+        }
+      } else {
+        if (data?.type === PRICING_REQUEST.SHIPPER_PRICING) {
+          setBaseFare(data?.newPricingRequestAmount - wajeehShareFromPricing);
+        } else {
+          setBaseFare(data?.newPricingRequestAmount);
+        }
+      }
+    }
+    if (data?.truckTypeRef) {
+      findTruckType(data.truckTypeRef);
+    }
+  }, [data]);
+
+  const handleBaseFareChange = (value: string) => {
+    const numericValue = Number(value) || 0;
+    setBaseFare(numericValue);
+  };
+
+  const handleWajeehShareChange = (value: string) => {
+    const numericValue = Number(value);
+    setWajeehShare(value);
+
+    // Clear error when user starts typing
+    if (wajeehShareError) {
+      setWajeehShareError("");
+    }
+
+    // Validate wajeeh share
+    if (value === "") {
+      setWajeehShareError(t("Required"));
+    } else if (numericValue < 0) {
+      setWajeehShareError(t("Wajeeh Share cannot be less than 0"));
+    } else {
+      setWajeehShareError("");
+    }
+  };
+
+  const handleMasterPriceCreateAndBooking = async (masterPricingData: any) => {
+    try {
+      await createMasterPricing({
+        ...masterPricingData,
+        truckSegment: truckType?.segment?._id,
+      });
+      await createBooking({ ...data?.bookingDetails });
+      await approveEstimateRequest({
+        params: {
+          estimateRequestId: data._id,
+        },
+        body: {
+          type: "estimate",
+          status: "deal-created",
+          newPricingRequestAmount: newPricingRequestAmount,
+          pricingType: "master",
+        },
+      });
+      toast.success(t("Master pricing created successfully").toString());
+    } catch (error: any) {
+      toast.error(
+        error.message || t("Error creating master pricing").toString()
+      );
+      console.error("Error creating master pricing:", error);
+    }
+  };
+
+  const handleApprove = async (paymentMethod?: string) => {
+    // Validate wajeeh share before approving
+    if (!wajeehShare || wajeehShare === "") {
+      setWajeehShareError(t("Required"));
+      return;
+    }
+
+    const numericWajeehShare = Number(wajeehShare);
+    if (numericWajeehShare < 0) {
+      setWajeehShareError(t("Wajeeh Share cannot be less than 0"));
+      return;
+    }
+
+    try {
+      const payload: any = {
+        status: "deal-created",
+        approvedAmount: baseFare + numericWajeehShare,
+        baseFare: baseFare,
+        wajeehShare: numericWajeehShare,
+        pricingType: "custom",
+      };
+
+      // Only include payment method for pricing requests
+      if (data?.type === "pricing") {
+        payload.paymentMethod = paymentMethod || "credit";
+      }
+
+      if (data?.type === PRICING_REQUEST.SHIPPER_PRICING) {
+        const booking = await createBooking({
+          ...data?.bookingDetails,
+          paymentMethod: paymentMethod,
+        });
+        await approveShipperPricingRequest({
+          params: {
+            estimateRequestId: data._id,
+          },
+          body: {
+            ...payload,
+            bookingRef: booking?._id,
+          },
+        });
+      } else {
+        await approveCarrierPricingRequest({
+          params: {
+            estimateRequestId: data._id,
+          },
+          body: payload,
+        });
+      }
+
+      toast.success(t("Request approved successfully").toString());
+    } catch (error) {
+      toast.error(error?.message);
+      console.error("Error approving request:", error);
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      await cancelPricingRequest({
+        params: {
+          estimateRequestId: data._id,
+        },
+        body: {
+          status: "cancelled",
+          pricingType: "custom",
+        },
+      });
+    } catch (error) {
+      console.error("Error rejecting request:", error);
+    }
+  };
+
+  const getStatusLabel = (status: Status): string => {
+    if (
+      data.type === PRICING_REQUEST.CARRIER_PRICING &&
+      status === "deal-created"
+    ) {
+      return "Pricing updated";
+    }
+    return statusLabelMap[status] ?? status;
+  };
+
+  const getStatusColor = (status: Status): string => {
+    return statusColorMap[status] ?? "default";
+  };
+
+  const getStatusIcon = (status: Status) => {
+    switch (status) {
+      case "deal-created":
+        return <ClockIcon color="success" />;
+      case "cancelled":
+        return <XCircleIcon color="error" />;
+      default:
+        return <ClockIcon color="primary" />;
+    }
+  };
+
+  const getRequestTitle = () => {
+    if (!data) return t("Estimate Request");
+
+    switch (data.type) {
+      case "estimate":
+        return t("Estimate Request");
+      case "pricing":
+      case "carrier-pricing":
+        return t("Price Change Request");
+      default:
+        return t("Estimate Request");
+    }
+  };
+
+  const getBackTitle = () => {
+    switch (data.type) {
+      case "estimate":
+        return t("Estimate Requests");
+      case "pricing":
+        return t("Better Price Requests");
+      case "carrier-pricing":
+        return t("Carrier Price Requests");
+      default:
+        return t("Estimate Request");
+    }
+  };
+
+  const showApproveConfirmation = () => {
+    setShowApprovalDialog(true);
+  };
+
+  const showRejectConfirmation = () => {
+    setShowDialog({
+      show: true,
+      title: t("Confirmation"),
+      text: t(
+        "Are you sure you want to reject/cancel this request? This action will reject/cancel the request."
+      ),
+      action: "reject",
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (showDialog.action === "reject") {
+      await handleReject();
+    }
+    setShowDialog({ show: false, title: "", text: "", action: "" });
+  };
+
+  const handleApprovalConfirm = async (paymentMethod: string) => {
+    await handleApprove(paymentMethod);
+    setShowApprovalDialog(false);
+  };
+
+  const renderCustomPricingForm = () => (
+    <>
+      <Box>
+        <PricingAdjustment
+          data={data}
+          baseFare={baseFare}
+          newPricingRequestAmount={newPricingRequestAmount}
+          wajeehShare={wajeehShare}
+          wajeehShareError={wajeehShareError}
+          onBaseFareChange={handleBaseFareChange}
+          onWajeehShareChange={handleWajeehShareChange}
+        />
+
+        <PricingBreakdown
+          data={data}
+          baseFare={baseFare}
+          newPricingRequestAmount={newPricingRequestAmount}
+          wajeehShare={wajeehShare}
+          originalWajeehShare={originalWajeehShare}
+        />
+      </Box>
+      <Box sx={{ mt: 2 }}>
+        <ActionButtons
+          data={data}
+          onApprove={showApproveConfirmation}
+          onReject={showRejectConfirmation}
+        />
+      </Box>
+    </>
+  );
+
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Typography>{t("Loading...")}</Typography>
+      </Box>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Typography>{t("Request not found")}</Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <RestrictPageMultiple
+      permissions={[
+        MoleculeType["carrier-pricing-request:read"],
+        MoleculeType["estimate:read"],
+        MoleculeType["estimate:manage"],
+      ]}
+    >
+      <Head>
+        <title>{getRequestTitle()} | Wajeeh</title>
+      </Head>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          py: 8,
+        }}
+      >
+        <Container maxWidth="xl">
+          <Box sx={{ mb: 4 }}>
+            <Link
+              color="textPrimary"
+              component="a"
+              onClick={() => router.back()}
+              sx={{
+                alignItems: "center",
+                display: "flex",
+                cursor: "pointer",
+                maxWidth: 200,
+                mb: 2,
+              }}
+            >
+              <ArrowLeftIcon
+                fontSize="small"
+                sx={{ mr: 1, color: "#6B7280" }}
+              />
+              <Typography variant="subtitle2">{getBackTitle()}</Typography>
+            </Link>
+
+            <Grid container justifyContent="space-between" spacing={3}>
+              <Grid item>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                  <Typography variant="h4" sx={{ mr: 2 }}>
+                    {getRequestTitle()}
+                  </Typography>
+                  <Chip
+                    icon={getStatusIcon(data.status)}
+                    label={getStatusLabel(data.status)}
+                    color={getStatusColor(data.status) as any}
+                    variant="outlined"
+                  />
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+
+          <Grid container spacing={{ xs: 2, sm: 3 }}>
+            <Grid item lg={8} md={7} xs={12}>
+              <Stack spacing={{ xs: 2, sm: 3 }}>
+                <RequestOverview data={data} />
+
+                {data.type === "estimate" ? (
+                  <MasterPricingForm
+                    data={data}
+                    onSubmit={handleMasterPriceCreateAndBooking}
+                    onReject={showRejectConfirmation}
+                  />
+                ) : (
+                  renderCustomPricingForm()
+                )}
+
+                {userType !== USER_TYPES.CARRIER && (
+                  <PersonnelInformation data={data} />
+                )}
+              </Stack>
+            </Grid>
+
+            <Grid item lg={4} md={5} xs={12}>
+              <Stack spacing={{ xs: 2, sm: 3 }}>
+                <SidebarInformation data={data} />
+                <RequestTimeline data={data} />
+              </Stack>
+            </Grid>
+          </Grid>
+        </Container>
+      </Box>
+
+      <ConfirmationDialog
+        show={showDialog.show}
+        toggle={() =>
+          setShowDialog({ show: false, title: "", text: "", action: "" })
+        }
+        onOk={handleConfirmAction}
+        okButtonText={t("Yes")}
+        cancelButtonText={t("Cancel")}
+        title={showDialog.title}
+        text={showDialog.text}
+      />
+
+      <ApprovalDialog
+        open={showApprovalDialog}
+        onClose={() => setShowApprovalDialog(false)}
+        onConfirm={handleApprovalConfirm}
+        data={data}
+        title={t("Approve Request").toString()}
+        text={t(
+          "Are you sure you want to approve this request? This will update the booking with new price."
+        ).toString()}
+        confirmButtonText={t("Approve").toString()}
+        cancelButtonText={t("Cancel").toString()}
+      />
+    </RestrictPageMultiple>
+  );
+};
+
+EstimateRequestDetail.getLayout = (page) => (
+  <AuthGuard>
+    <DashboardLayout>{page}</DashboardLayout>
+  </AuthGuard>
+);
+
+export default EstimateRequestDetail;
