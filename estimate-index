@@ -1,0 +1,688 @@
+import {
+  Avatar,
+  Box,
+  Button,
+  Card,
+  Container,
+  Grid,
+  IconButton,
+  Stack,
+  Typography,
+} from "@mui/material";
+import { format } from "date-fns";
+import type { NextPage } from "next";
+import Head from "next/head";
+import { useRouter } from "next/router";
+import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { ArrowRight as ArrowRightIcon } from "src/icons/arrow-right";
+import PricingRequestDetailsModal from "src/components/bookings/pricing-request-details-modal";
+import { DashboardLayout } from "src/components/dashboard/dashboard-layout";
+import { EstimateRequestsRowLoading } from "src/components/estimate-requests/estimate-request-row-loading";
+import RestrictPageMultiple from "src/components/permission-manager/restrict-page-multiple";
+import RestrictUserType from "src/components/permission-manager/restrict-user-type";
+import Restricted from "src/components/permission-manager/restricted";
+import NoDataAnimation from "src/components/widgets/animations/NoDataAnimation";
+import { SuperTable } from "src/components/widgets/super-table";
+import SuperTableHeader from "src/components/widgets/super-table-header";
+import { useEntity } from "src/hooks/use-entity";
+import { useUserType } from "src/hooks/use-use-type";
+import { MoleculeType } from "src/permission-manager";
+import useActiveTabs from "src/store/useActiveTabs";
+import { USER_TYPES } from "src/utils/constants";
+import { currencyFormatter } from "src/utils/currency-formatter";
+import { returnIf } from "src/utils/returnIf";
+import { Screens } from "src/utils/screens-names";
+import { useDebounce } from "use-debounce";
+import { AuthGuard } from "../../components/authentication/auth-guard";
+import { Plus as PlusIcon } from "../../icons/plus";
+import { gtm } from "../../lib/gtm";
+import { useRestrict } from "src/hooks/permission-manager/use-restrict";
+import { PRICING_REQUEST } from "src/types/pricing-request";
+
+type Sort = "desc" | "asc";
+
+interface SortOption {
+  value: Sort;
+  label: string;
+}
+
+type Status = "all" | "new" | "cancelled" | "deal-created";
+
+const statusLabelMap: Record<Status, string> = {
+  all: "New",
+  new: "New",
+  cancelled: "Cancelled",
+  "deal-created": "Booking Created",
+};
+
+export const PARENT_TABS = {
+  ESTIMATES: "estimate",
+  REQUESTS: "pricing",
+  CARRIER_PRICE_REQUEST: "carrier-pricing",
+};
+
+const EstimateRequest: NextPage = () => {
+  const { t } = useTranslation();
+  const { userType } = useUserType();
+
+  const tabs = [
+    {
+      label: t("All"),
+      value: "all",
+    },
+    {
+      label: t("New"),
+      value: "new",
+    },
+    {
+      label: t("Booking Created"),
+      value: "deal-created",
+    },
+    {
+      label: t("Cancelled"),
+      value: "cancelled",
+    },
+  ];
+
+  const sortOptions: SortOption[] = [
+    {
+      label: t("Newest"),
+      value: "desc",
+    },
+    {
+      label: t("Oldest"),
+      value: "asc",
+    },
+  ];
+
+  const getInitialParentTab = () => {
+    const { type } = router.query;
+
+    // If type parameter is provided, use it to set the parent tab
+    if (type) {
+      switch (type) {
+        case "estimate":
+          return PARENT_TABS.ESTIMATES;
+        case "pricing":
+          return PARENT_TABS.REQUESTS;
+        case "carrier-pricing":
+          return PARENT_TABS.CARRIER_PRICE_REQUEST;
+        default:
+          break;
+      }
+    }
+
+    // Fallback to user type logic if no type parameter or invalid type
+    if (userType == USER_TYPES.CARRIER) {
+      return PARENT_TABS.REQUESTS;
+    } else if (userType == USER_TYPES.SHIPPER) {
+      return PARENT_TABS.CARRIER_PRICE_REQUEST;
+    }
+
+    return PARENT_TABS.ESTIMATES;
+  };
+
+  const router = useRouter();
+
+  const [currentParentTab, setCurrentParentTab] = useState(
+    getInitialParentTab()
+  );
+  const [currentTab, setCurrentTab] = useState<string>("all");
+  const [page, setPage] = useState<number>(0);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [sort, setSort] = useState<Sort>(sortOptions[0].value);
+  const [queryText, setQueryText] = useState<string>("");
+  const [debouncedQuery] = useDebounce(queryText, 500);
+  const [selectedPricingRequest, setSelectedPricingRequest] = useState(null);
+  const { find, entities, loading } = useEntity("estimate");
+  const activeTabs = useActiveTabs();
+
+  const { checkRestriction } = useRestrict();
+
+  const tableHeaders = [
+    {
+      key: "bookingDate",
+      label: t("Booking Date"),
+    },
+    ...returnIf(currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST, [
+      {
+        key: "bookingNum",
+        label: t("Booking Number"),
+      },
+    ]),
+    ...returnIf(currentParentTab !== PARENT_TABS.CARRIER_PRICE_REQUEST, [
+      {
+        key: "shipperContact",
+        label: t("Shipper Contact"),
+      },
+    ]),
+    ...returnIf(currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST, [
+      {
+        key: "carrierContact",
+        label: t("Carrier Contact"),
+      },
+    ]),
+    {
+      key: "truckRequirement",
+      label: t("Truck Requirement"),
+    },
+    ...returnIf(currentParentTab !== PARENT_TABS.CARRIER_PRICE_REQUEST, [
+      {
+        key: "loadAndSegment",
+        label: t("Load & Segment"),
+      },
+    ]),
+    {
+      key: "route",
+      label: t("Route"),
+    },
+    ...returnIf(currentParentTab !== PARENT_TABS.ESTIMATES, [
+      {
+        key: "pricing",
+        label: t("Original Price → Requested Price"),
+      },
+    ]),
+    {
+      key: "status",
+      label: t("Status"),
+    },
+    ...returnIf(currentParentTab !== PARENT_TABS.ESTIMATES, [
+      {
+        key: "view",
+        label: t("View"),
+      },
+    ]),
+    {
+      key: "lastColumn",
+      label: "",
+    },
+  ];
+
+  const handleParentTabChange = (value: string): void => {
+    setCurrentParentTab(value);
+    setCurrentTab("all");
+    setPage(0);
+  };
+
+  const handleTabChange = (value: string): void => {
+    setCurrentTab(value);
+    setPage(0);
+  };
+
+  const handleQueryChange = (value: string): void => {
+    if (value != undefined) {
+      setQueryText(value);
+    }
+  };
+
+  const handleSortChange = (value): void => {
+    setSort(value);
+  };
+
+  const handlePageChange = (newPage: number): void => {
+    setPage(newPage);
+  };
+
+  const handleRowsPerPageChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ): void => {
+    setPage(0);
+    setRowsPerPage(parseInt(event.target.value, 10));
+  };
+
+  useEffect(() => {
+    gtm.push({ event: "page_view" });
+  }, []);
+
+  useEffect(() => {
+    // Update parent tab when URL query parameters change
+    const newParentTab = getInitialParentTab();
+    setCurrentParentTab(newParentTab);
+  }, [router.query.type]);
+
+  useEffect(() => {
+    find({
+      type: currentParentTab,
+      activeTab: currentTab,
+      page: page,
+      sort: sort,
+      limit: rowsPerPage,
+      _q: debouncedQuery,
+    });
+  }, [sort, rowsPerPage, page, currentParentTab, currentTab, debouncedQuery]);
+
+  const getStatusLabel = (status: Status, data: any): string => {
+    if (
+      data.type === PRICING_REQUEST.CARRIER_PRICING &&
+      status === "deal-created"
+    ) {
+      return "Pricing updated";
+    }
+    return statusLabelMap[status] ?? status;
+  };
+
+  const transformedData = useMemo(() => {
+    const arr = [];
+    entities?.results?.map((d) => {
+      arr.push({
+        _id: d?._id,
+        ...(currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST && {
+          bookingNum: d?.bookingRef?.bookingNum,
+        }),
+        key: d?._id,
+        bookingDate: (
+          <Box
+            sx={{
+              backgroundColor: (theme) =>
+                theme.palette.mode === "dark" ? "neutral.800" : "neutral.200",
+              borderRadius: 2,
+              maxWidth: "fit-content",
+              p: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "flex-start",
+            }}
+          >
+            <Typography align="center" variant="subtitle2">
+              {format(new Date(d?.pickupDate), "MMM")}
+            </Typography>
+            <Typography align="center" variant="h6">
+              {format(new Date(d?.pickupDate), "dd")}
+            </Typography>
+            <Typography variant="caption" textAlign="center">
+              {format(new Date(d?.pickupDate), "h:mm a")}
+            </Typography>
+          </Box>
+        ),
+        shipperContact: (
+          <Box
+            sx={{
+              alignItems: "center",
+              display: "flex",
+            }}
+          >
+            <Avatar
+              src={d?.shipper?.profilePicture || ""}
+              sx={{
+                height: 42,
+                width: 42,
+              }}
+            />
+            <Box sx={{ ml: 1, textAlign: "start" }}>
+              <Typography color="inherit" variant="subtitle2">
+                {d?.contact?.name}
+              </Typography>
+              <Typography color="textSecondary" variant="body2">
+                {d?.contact?.phone}
+              </Typography>
+            </Box>
+          </Box>
+        ),
+        carrierContact: (
+          <Box
+            sx={{
+              alignItems: "center",
+              display: "flex",
+            }}
+          >
+            <Avatar
+              src={d?.carrier?.profilePicture || ""}
+              sx={{
+                height: 42,
+                width: 42,
+              }}
+            />
+            <Box sx={{ ml: 1, textAlign: "start" }}>
+              <Typography color="inherit" variant="subtitle2">
+                {d?.carrier?.name}
+              </Typography>
+              <Typography color="textSecondary" variant="body2">
+                {d?.carrier?.phone}
+              </Typography>
+            </Box>
+          </Box>
+        ),
+        truckRequirement: (
+          <Box
+            sx={{
+              alignItems: "center",
+              display: "flex",
+            }}
+          >
+            <Box sx={{ textAlign: "left" }}>
+              <Typography
+                variant="subtitle2"
+                sx={{ textTransform: "capitalize" }}
+              >
+                {d?.truckType}
+              </Typography>
+              <Typography variant="subtitle2">
+                {d?.numberOfTrucks} Numbers
+              </Typography>
+            </Box>
+          </Box>
+        ),
+        loadAndSegment: (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+            <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
+              {currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST
+                ? `${d?.loadType}${d?.carType ? `, ${d?.carType}` : ""}`
+                : `${d?.loadType}, Heavy`}
+            </Typography>
+            {d?.numberOfPallets && (
+              <Typography variant="body2" color="text.secondary">
+                {d?.numberOfPallets} Pallets
+              </Typography>
+            )}
+            {d?.loadInTons && d?.loadInTons > 0 && (
+              <Typography variant="body2" color="text.secondary">
+                {d?.loadInTons} Tons
+              </Typography>
+            )}
+          </Box>
+        ),
+        route: (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+            <Typography variant="body2" fontWeight="bold">
+              {d?.from?.address} - {d?.to?.address}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {d?.isPort ? "Port" : "Non-Port"}
+            </Typography>
+          </Box>
+        ),
+        ...(currentParentTab === PARENT_TABS.REQUESTS && {
+          pricing: (
+            <Box>
+              <Stack direction="row" spacing={1}>
+                <Typography variant="body2">
+                  {currencyFormatter(d?.originalBasePrice)}
+                </Typography>
+                <Typography variant="body2">→</Typography>
+                <Typography variant="body2">
+                  {currencyFormatter(d?.newPricingRequestAmount)}
+                </Typography>
+              </Stack>
+              <Typography
+                variant="body2"
+                sx={{ mt: 1 }}
+                color="primary.main"
+                fontWeight="bold"
+              >
+                {currencyFormatter(
+                  d?.newPricingRequestAmount - d?.originalBasePrice
+                )}{" "}
+                (
+                {Math.abs(
+                  Math.round(
+                    (1 - d?.newPricingRequestAmount / d?.originalBasePrice) *
+                      100
+                  )
+                )}
+                %)
+              </Typography>
+            </Box>
+          ),
+        }),
+        ...(currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST && {
+          pricing: (
+            <Box>
+              <Stack direction="row" spacing={1}>
+                <Typography variant="body2">
+                  {currencyFormatter(d?.originalBasePrice)}
+                </Typography>
+                <Typography variant="body2">→</Typography>
+                <Typography variant="body2">
+                  {currencyFormatter(d?.newPricingRequestAmount)}
+                </Typography>
+              </Stack>
+              <Typography
+                variant="body2"
+                sx={{ mt: 1 }}
+                color="primary.main"
+                fontWeight="bold"
+              >
+                {currencyFormatter(
+                  d?.newPricingRequestAmount - d?.originalBasePrice
+                )}{" "}
+                (
+                {Math.abs(
+                  Math.round(
+                    (1 - d?.newPricingRequestAmount / d?.originalBasePrice) *
+                      100
+                  )
+                )}
+                %)
+              </Typography>
+            </Box>
+          ),
+        }),
+        ...(currentParentTab === PARENT_TABS.CARRIER_PRICE_REQUEST && {
+          personnel: (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {d?.loadingPersonnel && (
+                <Box>
+                  <Typography variant="body2" fontWeight="bold" color="primary">
+                    {t("Loading")}:
+                  </Typography>
+                  <Typography variant="body2">
+                    {d?.loadingPersonnel?.name} - {d?.loadingPersonnel?.phone}
+                  </Typography>
+                </Box>
+              )}
+              {d?.receivingPersonnel && (
+                <Box>
+                  <Typography variant="body2" fontWeight="bold" color="primary">
+                    {t("Receiving")}:
+                  </Typography>
+                  <Typography variant="body2">
+                    {d?.receivingPersonnel?.name} -{" "}
+                    {d?.receivingPersonnel?.phone}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          ),
+        }),
+        status: (
+          <Box>
+            <Typography variant="body2">
+              {getStatusLabel(d?.status, d)}
+            </Typography>
+          </Box>
+        ),
+        lastColumn: (
+          <IconButton
+            disabled={
+              checkRestriction(MoleculeType["payment:create"])
+                ? true
+                : d?.type === "proforma"
+            }
+            onClick={() => {
+              router.push({
+                pathname: `/estimate-request/${d?._id}`,
+              });
+            }}
+          >
+            <ArrowRightIcon fontSize="small" />
+          </IconButton>
+        ),
+      });
+    });
+
+    return arr;
+  }, [entities?.results, currentParentTab]);
+
+  useEffect(() => {
+    setCurrentTab(activeTabs.getTab(Screens.estimateRequest));
+  }, []);
+
+  useEffect(() => {
+    activeTabs.changeTab(currentTab, Screens.estimateRequest);
+  }, [currentTab]);
+
+  useEffect(() => {
+    return () => {
+      activeTabs.changeTab("all", Screens.estimateRequest);
+    };
+  }, []);
+
+  const getPageTitle = () => {
+    switch (currentParentTab) {
+      case PARENT_TABS.ESTIMATES:
+        return t("Estimates");
+      case PARENT_TABS.REQUESTS:
+        return t("Better Price Requests");
+      case PARENT_TABS.CARRIER_PRICE_REQUEST:
+        return t("Carrier Price Requests");
+      default:
+        return t("Estimates & Price Requests");
+    }
+  };
+
+  const getPageTitleWithBrand = () => {
+    return `${getPageTitle()} | Wajeeh`;
+  };
+
+  const getParentTabs = () => {
+    if (
+      userType == USER_TYPES.SHIPPER &&
+      (currentParentTab === PARENT_TABS.REQUESTS ||
+        currentParentTab === PARENT_TABS.ESTIMATES)
+    ) {
+      return [
+        {
+          label: t("Estimates"),
+          value: PARENT_TABS.ESTIMATES,
+        },
+        {
+          label: t("Price Change Requests"),
+          value: PARENT_TABS.REQUESTS,
+        },
+      ];
+    }
+
+    return [];
+  };
+
+  return (
+    <RestrictPageMultiple
+      permissions={[
+        MoleculeType["carrier-pricing-request:read"],
+        MoleculeType["estimate:read"],
+        MoleculeType["estimate:manage"],
+      ]}
+    >
+      <Head>
+        <title>{getPageTitleWithBrand()}</title>
+      </Head>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          py: 8,
+        }}
+      >
+        <Container maxWidth="xl">
+          <Box sx={{ mb: 4 }}>
+            <Grid container justifyContent="space-between" spacing={3}>
+              <Grid item>
+                <Typography variant="h4">{getPageTitle()}</Typography>
+              </Grid>
+              <Grid item>
+                <RestrictUserType admin carrier>
+                  <Restricted permission={MoleculeType["booking:read"]}>
+                    <Button
+                      variant="outlined"
+                      sx={{ mr: 2 }}
+                      onClick={() => {
+                        router.push("/bookings/load-board");
+                      }}
+                    >
+                      {t("Find a Trip")}
+                    </Button>
+                  </Restricted>
+                </RestrictUserType>
+
+                <RestrictUserType shipper admin>
+                  <Restricted permission={MoleculeType["booking:create"]}>
+                    <Button
+                      onClick={() => {
+                        router.push("/bookings/add");
+                      }}
+                      variant="contained"
+                      startIcon={<PlusIcon fontSize="small" />}
+                      sx={{ mr: 2 }}
+                    >
+                      {t("Post a Trip")}
+                    </Button>
+                  </Restricted>
+                </RestrictUserType>
+              </Grid>
+            </Grid>
+          </Box>
+          <Card>
+            <SuperTableHeader
+              currentParentTab={currentParentTab}
+              onParentTabChange={handleParentTabChange}
+              currentTab={currentTab}
+              onQueryChange={handleQueryChange}
+              showSearchAndSort={true}
+              placeholder={t("Search with Shipper Name")}
+              onSortChange={handleSortChange}
+              onTabChange={handleTabChange}
+              sort={sort}
+              sortOptions={sortOptions}
+              parentTabs={getParentTabs() as { label: string; value: string }[]}
+              tabs={tabs as { label: string; value: string }[]}
+            />
+            <SuperTable
+              showCheckbox={false}
+              isLoading={loading}
+              loaderComponent={EstimateRequestsRowLoading}
+              onPageChange={handlePageChange}
+              onRowsPerPageChange={handleRowsPerPageChange}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              headers={tableHeaders}
+              items={transformedData}
+              total={entities?.total || 0}
+              noDataPlaceholder={
+                <Box sx={{ mt: 6, mb: 4 }}>
+                  <NoDataAnimation
+                    text={
+                      <Typography
+                        variant="h4"
+                        textAlign="center"
+                        sx={{ mt: 2 }}
+                      >
+                        {t("No Data!")}
+                      </Typography>
+                    }
+                  />
+                </Box>
+              }
+            />
+          </Card>
+        </Container>
+      </Box>
+
+      <PricingRequestDetailsModal
+        open={!!selectedPricingRequest}
+        onClose={() => setSelectedPricingRequest(null)}
+        data={selectedPricingRequest}
+      />
+    </RestrictPageMultiple>
+  );
+};
+
+EstimateRequest.getLayout = (page) => (
+  <AuthGuard>
+    <DashboardLayout>{page}</DashboardLayout>
+  </AuthGuard>
+);
+
+export default EstimateRequest;
