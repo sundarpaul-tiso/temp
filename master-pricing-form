@@ -1,0 +1,452 @@
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
+  Grid,
+  Radio,
+  RadioGroup,
+  Switch,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { DateTimePicker } from "@mui/lab";
+import { useTranslation } from "react-i18next";
+import { useFormik } from "formik";
+import * as Yup from "yup";
+import { useState } from "react";
+
+interface MasterPricingFormProps {
+  data: any;
+  onSubmit: (values: any) => Promise<void>;
+  onReject: () => void;
+}
+
+export const MasterPricingForm = ({
+  data,
+  onSubmit,
+  onReject,
+}: MasterPricingFormProps) => {
+  const { t } = useTranslation();
+  const [openEndDate, setOpenEndDate] = useState(false);
+
+  const isBookingCreated = data?.status === "deal-created";
+
+  const masterPricingSchema = Yup.object({
+    oneWayPrice: Yup.number()
+      .test(
+        "Is positive?",
+        t("Fare must be greater than 0"),
+        (value) => value > 0
+      )
+      .required(t("Fare is required")),
+    comission: Yup.number()
+      .when("isInPercentage", {
+        is: true,
+        then: Yup.number().max(99, t("Comission must be less than 100")),
+      })
+      .required(t("Comission is required")),
+    oneWayKms: Yup.number()
+      .test(
+        "Is positive?",
+        t("Distance must be greater than 0"),
+        (value) => value > 0
+      )
+      .required(t("Distance is required")),
+  });
+
+  const masterPricingFormik = useFormik({
+    initialValues: {
+      truckSegment: "",
+      oneWayPrice: data?.newPricingRequestAmount || 0,
+      comission: 0,
+      isInPercentage: true,
+      oneWayKms: 0,
+      startDate: "",
+      endDate: "",
+      validForever: false,
+      temporaryPricing: true,
+    },
+    validationSchema: masterPricingSchema,
+    onSubmit: async (values) => {
+      try {
+        const masterPricingData = {
+          truckType: data.truckTypeRef,
+          truckSegment: values.truckSegment,
+          from: data.fromRef,
+          to: data.toRef,
+          fromLocationName: data.from.address,
+          toLocationName: data.to.address,
+          fromLocationCoordinates: {
+            coordinates: data.from.coordinates || [0, 0],
+            type: "Point",
+          },
+          toLocationCoordinates: {
+            coordinates: data.to.coordinates || [0, 0],
+            type: "Point",
+          },
+          twoWayKms: 0,
+          status: "active",
+          pricingType: "master",
+          oneWayPrice: values.oneWayPrice,
+          comission: values.comission,
+          isInPercentage: values.isInPercentage,
+          oneWayKms: values.oneWayKms,
+          startDate: new Date(),
+          endDate: values.validForever
+            ? new Date("2050-12-31T23:59:59")
+            : values.endDate,
+          validForever: values.validForever,
+          temporaryPricing: values.temporaryPricing,
+        };
+
+        if (!values.temporaryPricing) {
+          masterPricingData.endDate = new Date(
+            new Date().setMinutes(new Date().getMinutes() + 10)
+          );
+        }
+
+        await onSubmit(masterPricingData);
+      } catch (error) {
+        console.error("Error creating master pricing:", error);
+      }
+    },
+  });
+
+  const getMasterPricingTotalPrice = () => {
+    let wajeehComission = 0;
+
+    if (masterPricingFormik.values.isInPercentage) {
+      wajeehComission =
+        (masterPricingFormik.values.oneWayPrice *
+          masterPricingFormik.values.comission) /
+        100;
+    } else {
+      wajeehComission = masterPricingFormik.values.comission;
+    }
+
+    return masterPricingFormik.values.oneWayPrice + wajeehComission;
+  };
+
+  return (
+    <Card>
+      <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          {t("Create Master Pricing")}
+        </Typography>
+
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              name="oneWayPrice"
+              required
+              type="number"
+              onWheel={(event: any) => {
+                event.preventDefault();
+                event.target.blur();
+              }}
+              disabled={isBookingCreated}
+              variant="outlined"
+              label={t("Fare")}
+              InputProps={{
+                startAdornment: (
+                  <Typography
+                    color="textSecondary"
+                    variant="body2"
+                    sx={{ mr: 1 }}
+                  >
+                    {t("SAR")}
+                  </Typography>
+                ),
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key == "." ||
+                  event.key === "+" ||
+                  event.key === "-"
+                ) {
+                  event.preventDefault();
+                }
+              }}
+              onChange={masterPricingFormik.handleChange}
+              onBlur={masterPricingFormik.handleBlur}
+              value={masterPricingFormik.values.oneWayPrice}
+              error={Boolean(
+                masterPricingFormik.touched.oneWayPrice &&
+                  masterPricingFormik.errors.oneWayPrice
+              )}
+              helperText={
+                masterPricingFormik.touched.oneWayPrice &&
+                masterPricingFormik.errors.oneWayPrice
+              }
+            />
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              name="comission"
+              onChange={masterPricingFormik.handleChange}
+              onBlur={masterPricingFormik.handleBlur}
+              required
+              type="number"
+              onWheel={(event: any) => {
+                event.preventDefault();
+                event.target.blur();
+              }}
+              disabled={isBookingCreated}
+              variant="outlined"
+              label={
+                masterPricingFormik.values.isInPercentage
+                  ? `${t("Wajeeh Comission")} (${t("in")} %)`
+                  : `${t("Wajeeh Comission")} (${t("in SAR")})`
+              }
+              onKeyDown={(event) => {
+                if (
+                  event.key == "." ||
+                  event.key === "+" ||
+                  event.key === "-"
+                ) {
+                  event.preventDefault();
+                }
+              }}
+              value={masterPricingFormik.values.comission}
+              error={Boolean(
+                masterPricingFormik.touched.comission &&
+                  masterPricingFormik.errors.comission
+              )}
+              helperText={
+                masterPricingFormik.touched.comission &&
+                masterPricingFormik.errors.comission
+              }
+            />
+            <Box sx={{ display: "flex", alignItems: "center", ml: 1 }}>
+              <Switch
+                checked={masterPricingFormik.values.isInPercentage}
+                onChange={(e) => {
+                  masterPricingFormik.handleChange("isInPercentage")(e);
+                }}
+                edge="start"
+                name="isInPercentage"
+              />
+              <Typography color="textSecondary" variant="body2">
+                {masterPricingFormik.values.isInPercentage
+                  ? t("In Percentage")
+                  : t("In Amount")}
+              </Typography>
+            </Box>
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              disabled
+              name="totalPrice"
+              variant="outlined"
+              label={t("Total Fare Excluding Taxes")}
+              value={getMasterPricingTotalPrice()}
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              name="oneWayKms"
+              required
+              type="number"
+              onWheel={(event: any) => {
+                event.preventDefault();
+                event.target.blur();
+              }}
+              disabled={isBookingCreated}
+              variant="outlined"
+              label={`${t("Approx")}. ${t("Distance")} (${t("in KM")})`}
+              onChange={masterPricingFormik.handleChange}
+              value={masterPricingFormik.values.oneWayKms}
+              error={Boolean(
+                masterPricingFormik.touched.oneWayKms &&
+                  masterPricingFormik.errors.oneWayKms
+              )}
+              helperText={
+                masterPricingFormik.touched.oneWayKms &&
+                masterPricingFormik.errors.oneWayKms
+              }
+              InputProps={{
+                endAdornment: (
+                  <Typography
+                    color="textSecondary"
+                    variant="body2"
+                    sx={{ mr: 1 }}
+                  >
+                    {t("KM")}
+                  </Typography>
+                ),
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key == "." ||
+                  event.key === "+" ||
+                  event.key === "-"
+                ) {
+                  event.preventDefault();
+                }
+              }}
+              onBlur={masterPricingFormik.handleBlur}
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <FormControl disabled={isBookingCreated}>
+              <FormLabel
+                sx={{ fontWeight: "bold", mb: 1, color: "text.primary" }}
+              >
+                {t("Validity")}
+              </FormLabel>
+              <RadioGroup
+                row
+                name="temporaryPricing"
+                value={masterPricingFormik.values.temporaryPricing}
+                onChange={(e) => {
+                  masterPricingFormik.setFieldValue(
+                    "temporaryPricing",
+                    e.target.value === "true"
+                  );
+                }}
+              >
+                <FormControlLabel
+                  value="true"
+                  control={<Radio />}
+                  label={t("Temporary")}
+                />
+                <FormControlLabel
+                  value="false"
+                  control={<Radio />}
+                  label={t("Permanent")}
+                />
+              </RadioGroup>
+            </FormControl>
+          </Grid>
+
+          {!masterPricingFormik.values.temporaryPricing && (
+            <Grid item xs={12}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "start",
+                  gap: 2,
+                  width: "100%",
+                  flexDirection: { xs: "column", sm: "row" },
+                }}
+              >
+                <Box sx={{ width: "100%" }}>
+                  <DateTimePicker
+                    open={openEndDate}
+                    onOpen={() => setOpenEndDate(true)}
+                    onClose={() => setOpenEndDate(false)}
+                    minDateTime={
+                      masterPricingFormik?.values?.startDate
+                        ? new Date(masterPricingFormik?.values?.startDate)
+                        : new Date()
+                    }
+                    label={t("End Date")}
+                    InputProps={{ disabled: true }}
+                    inputFormat="dd/MM/yyyy hh:mm a"
+                    disabled={
+                      masterPricingFormik.values.validForever ||
+                      isBookingCreated
+                    }
+                    disablePast
+                    onChange={(date) =>
+                      masterPricingFormik.setFieldValue("endDate", date)
+                    }
+                    value={masterPricingFormik.values.endDate || null}
+                    renderInput={(params) => (
+                      <TextField
+                        fullWidth
+                        onClick={() => setOpenEndDate(!openEndDate)}
+                        required
+                        {...params}
+                        name="endDate"
+                        helperText={
+                          masterPricingFormik.touched.endDate &&
+                          masterPricingFormik.errors.endDate &&
+                          masterPricingFormik.values.endDate
+                        }
+                        error={Boolean(
+                          masterPricingFormik.touched.endDate &&
+                            masterPricingFormik.errors.endDate &&
+                            !masterPricingFormik.values.endDate
+                        )}
+                        onBlur={masterPricingFormik.handleBlur("endDate")}
+                      />
+                    )}
+                  />
+                  <FormControlLabel
+                    onChange={() => {
+                      const newValidForever =
+                        !masterPricingFormik.values.validForever;
+                      masterPricingFormik.setFieldValue(
+                        "validForever",
+                        newValidForever
+                      );
+                    }}
+                    control={
+                      <Checkbox
+                        checked={masterPricingFormik.values.validForever}
+                        name="validForever"
+                        size="small"
+                      />
+                    }
+                    value={masterPricingFormik.values.validForever}
+                    label={t("Valid forever")}
+                    sx={{ mt: 0 }}
+                  />
+                </Box>
+              </Box>
+            </Grid>
+          )}
+
+          {masterPricingFormik.values.temporaryPricing && (
+            <Grid item xs={12}>
+              <Alert severity="info">
+                {t("The master pricing would be created only for this booking")}
+              </Alert>
+            </Grid>
+          )}
+
+          <Grid item xs={12}>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              {t(
+                "The booking will be created based on the prices mentioned. For any changes," +
+                  "please contact the shipper before creating the booking."
+              )}
+            </Alert>
+          </Grid>
+
+          {!isBookingCreated && (
+            <Grid item xs={12}>
+              <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                <Button variant="outlined" onClick={onReject} color="error">
+                  {t("Reject")}
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => masterPricingFormik.handleSubmit()}
+                  disabled={masterPricingFormik.isSubmitting}
+                >
+                  {t("Create Booking")}
+                </Button>
+              </Box>
+            </Grid>
+          )}
+        </Grid>
+      </CardContent>
+    </Card>
+  );
+}; 
