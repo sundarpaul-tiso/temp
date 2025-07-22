@@ -1,0 +1,362 @@
+import {
+  Box,
+  Card,
+  CardContent,
+  Divider,
+  Grid,
+  Typography,
+} from "@mui/material";
+import { useTranslation } from "react-i18next";
+import { currencyFormatter } from "src/utils/currency-formatter";
+import { USER_TYPES } from "src/utils/constants";
+import { useUserType } from "src/hooks/use-use-type";
+import { PRICING_REQUEST } from "src/types/pricing-request";
+import { useEffect, useState } from "react";
+
+interface PricingBreakdownProps {
+  data: any;
+  newPricingRequestAmount: number;
+  wajeehShare: string;
+  originalWajeehShare: number;
+  baseFare: number;
+}
+
+export const PricingBreakdown = ({
+  data,
+  wajeehShare,
+  originalWajeehShare,
+  baseFare,
+}: PricingBreakdownProps) => {
+  const { t } = useTranslation();
+
+  const { userType } = useUserType();
+
+  const [pricingBreakdown, setPricingBreakdown] = useState<any>({
+    original: {
+      pricePerTruck: 0,
+      wajeehShare: 0,
+      totalPerTruck: 0,
+      totalBookingPrice: 0,
+    },
+    revised: {
+      pricePerTruck: 0,
+      wajeehShare: 0,
+      totalPerTruck: 0,
+      totalBookingPrice: 0,
+    },
+  });
+
+  useEffect(() => {
+    const numericWajeehShare = Number(wajeehShare || 0);
+
+    const orignalPricing = {
+      pricePerTruck: data?.originalBasePrice,
+      wajeehShare: originalWajeehShare,
+      totalPerTruck: data?.originalBasePrice,
+      totalBookingPrice: data?.originalBasePrice * (data?.numberOfTrucks || 1),
+    };
+
+    const newPricing = {
+      pricePerTruck:
+        data?.type === PRICING_REQUEST.SHIPPER_PRICING &&
+        userType === USER_TYPES.SHIPPER
+          ? baseFare + numericWajeehShare
+          : baseFare,
+      wajeehShare: numericWajeehShare,
+      totalPerTruck:
+        data?.type === PRICING_REQUEST.SHIPPER_PRICING
+          ? baseFare + numericWajeehShare
+          : baseFare,
+      totalBookingPrice:
+        data?.type === PRICING_REQUEST.SHIPPER_PRICING
+          ? (baseFare + numericWajeehShare) * (data?.numberOfTrucks || 1)
+          : baseFare * (data?.numberOfTrucks || 1),
+    };
+
+    if (data?.status === "deal-created") {
+      newPricing.pricePerTruck = baseFare;
+      newPricing.totalBookingPrice = baseFare * (data?.numberOfTrucks || 1);
+    }
+
+    setPricingBreakdown({
+      original: orignalPricing,
+      revised: newPricing,
+    });
+  }, [data, baseFare, wajeehShare]);
+
+  const showTotalPerTruck = () => {
+    if (data?.type !== PRICING_REQUEST.ESTIMATE) {
+      if (userType === USER_TYPES.ADMIN) {
+        return true;
+      }
+
+      return false;
+    }
+
+    return true;
+  };
+
+  return (
+    <Box sx={{ backgroundColor: "background.paper" }}>
+      <Box sx={{ p: { xs: 2, sm: 3 } }}>
+        <Typography variant="h6" sx={{ mb: 3 }}>
+          {t("Pricing Breakdown Comparison")}
+        </Typography>
+
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
+          {/* Original Pricing */}
+          <Grid item xs={12} md={6}>
+            <Card variant="outlined" sx={{ height: "100%" }}>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                <Typography
+                  variant="h6"
+                  sx={{ mb: 2, color: "text.secondary" }}
+                >
+                  {t("Original Pricing")}
+                </Typography>
+
+                <Box sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2" color="textSecondary">
+                      {t("Price per Truck")}{" "}
+                      {data?.type === PRICING_REQUEST.CARRIER_PRICING &&
+                        t("(for carrier)")}
+                    </Typography>
+                    <Typography variant="body2" fontWeight={500}>
+                      {currencyFormatter(
+                        pricingBreakdown.original.pricePerTruck
+                      )}
+                    </Typography>
+                  </Box>
+
+                  {userType === USER_TYPES.ADMIN && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="body2" color="textSecondary">
+                        {t("Wajeeh Share")}
+                      </Typography>
+                      <Typography variant="body2" fontWeight={500}>
+                        {currencyFormatter(originalWajeehShare)}
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {showTotalPerTruck() && (
+                    <>
+                      <Divider sx={{ my: 1 }} />
+
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          mb: 1,
+                        }}
+                      >
+                        <Typography variant="body1" fontWeight={600}>
+                          {t("Total per Truck")}
+                        </Typography>
+                        <Typography
+                          variant="body1"
+                          fontWeight={600}
+                          color="text.secondary"
+                        >
+                          {currencyFormatter(
+                            pricingBreakdown.original.totalPerTruck
+                          )}
+                        </Typography>
+                      </Box>
+                    </>
+                  )}
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2" color="textSecondary">
+                      {t("Number of Trucks")}
+                    </Typography>
+                    <Typography variant="body2" fontWeight={500}>
+                      {data?.numberOfTrucks || 1}
+                    </Typography>
+                  </Box>
+
+                  <Divider sx={{ my: 1 }} />
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="h6" fontWeight={600}>
+                      {t("Total Booking Price")}
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      fontWeight={600}
+                      color="text.secondary"
+                    >
+                      {currencyFormatter(
+                        pricingBreakdown.original.totalBookingPrice
+                      )}
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* New Pricing */}
+          <Grid item xs={12} md={6}>
+            <Card
+              variant="outlined"
+              sx={{ height: "100%", borderColor: "primary.main" }}
+            >
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                <Typography variant="h6" sx={{ mb: 2, color: "primary.main" }}>
+                  {t("Revised Price")}
+                </Typography>
+
+                <Box sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2" color="textSecondary">
+                      {t("Price per Truck")}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      fontWeight={500}
+                      color="primary.main"
+                    >
+                      {currencyFormatter(
+                        pricingBreakdown.revised.pricePerTruck
+                      )}
+                    </Typography>
+                  </Box>
+
+                  {userType === USER_TYPES.ADMIN && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="body2" color="textSecondary">
+                        {t("Wajeeh Share")}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        fontWeight={500}
+                        color="primary.main"
+                      >
+                        {currencyFormatter(
+                          pricingBreakdown.revised.wajeehShare
+                        )}
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {showTotalPerTruck() && (
+                    <>
+                      <Divider sx={{ my: 1 }} />
+
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          mb: 1,
+                        }}
+                      >
+                        <Typography variant="body1" fontWeight={600}>
+                          {t("Total per Truck")}
+                        </Typography>
+                        <Typography
+                          variant="body1"
+                          fontWeight={600}
+                          color="primary.main"
+                        >
+                          {currencyFormatter(
+                            pricingBreakdown.revised.totalPerTruck
+                          )}
+                        </Typography>
+                      </Box>
+                    </>
+                  )}
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="body2" color="textSecondary">
+                      {t("Number of Trucks")}
+                    </Typography>
+                    <Typography variant="body2" fontWeight={500}>
+                      {data?.numberOfTrucks || 1}
+                    </Typography>
+                  </Box>
+
+                  <Divider sx={{ my: 1 }} />
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 1,
+                    }}
+                  >
+                    <Typography variant="h6" fontWeight={600}>
+                      {t("Total Booking Price")}
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      fontWeight={600}
+                      color="primary.main"
+                    >
+                      {currencyFormatter(
+                        pricingBreakdown.revised.totalBookingPrice
+                      )}
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    </Box>
+  );
+}; 
