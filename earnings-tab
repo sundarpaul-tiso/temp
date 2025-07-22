@@ -1,0 +1,129 @@
+import { NextPage } from "next";
+import { Box, Button, Grid, Typography } from "@mui/material";
+import { useRouter } from "next/router";
+import { useContext } from "react";
+import { useTranslation } from "react-i18next";
+import { TripContext } from "src/contexts/trip-context";
+import { currencyFormatter } from "src/utils/currency-formatter";
+import { ArrowRight as ArrowRightIcon } from "src/icons/arrow-right";
+import { OverviewCard } from "../overview-card";
+import {
+  getCarrierStrikeAmount,
+  getCarrierTotalAmount,
+  getShipperStrikeAmount,
+} from "src/utils/get-amount";
+import { CurrencyFormatter } from "src/components/currency-formatter";
+import RestrictUserType from "src/components/permission-manager/restrict-user-type";
+
+export const TripsEarnings: NextPage = () => {
+  const router = useRouter();
+  const { t } = useTranslation();
+  const context = useContext<any>(TripContext);
+
+  const getPaymentStatus = () => {
+    if (context?.billing?.paid >= context?.billing?.carrierShare) {
+      return t("Paid");
+    } else {
+      return t("Pending");
+    }
+  };
+
+  const calculateCarrierTripStrikeAmount = () => {
+    return currencyFormatter(getCarrierStrikeAmount(context));
+  };
+
+  const calculateTripStrikeAmount = () => {
+    return currencyFormatter(getShipperStrikeAmount(context));
+  };
+
+  return (
+    <Box component="main" sx={{ mt: 4 }}>
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={6}>
+          <OverviewCard
+            headTitle={t("Amount")}
+            headValue={CurrencyFormatter(getCarrierTotalAmount(context))}
+            headSubValue={
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <RestrictUserType admin shipper>
+                  {context?.billing?.discountCode && (
+                    <Typography
+                      variant="h6"
+                      color="textSecondary"
+                      sx={{
+                        ml: 1,
+                        mt: 1,
+                        textDecoration: "line-through",
+                      }}
+                    >
+                      {calculateTripStrikeAmount()}
+                    </Typography>
+                  )}
+                </RestrictUserType>
+                <RestrictUserType carrier>
+                  {context?.billing?.additionalCharges?.length > 0 && (
+                    <Typography
+                      variant="h6"
+                      color="textSecondary"
+                      sx={{
+                        ml: 1,
+                        mt: 1,
+                        textDecoration: "line-through",
+                      }}
+                    >
+                      {calculateCarrierTripStrikeAmount()}
+                    </Typography>
+                  )}
+                </RestrictUserType>
+                <Typography
+                  color="textSecondary"
+                  variant="body2"
+                  sx={{ ml: 1, mt: 1 }}
+                >
+                  {t("for the trip")}
+                </Typography>
+              </Box>
+            }
+            bodyTitle={t("Earnings Details")}
+            bodyValues={[
+              {
+                listKey: t("Base Amount"),
+                listValue: currencyFormatter(context?.billing?.baseTotal || 0),
+                color: "#4A90E2",
+              },
+            ]}
+            ctaButton={<></>}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <OverviewCard
+            headTitle={t("Earning Status")}
+            headValue={getPaymentStatus()}
+            bodyTitle={t("Payment Details")}
+            bodyValues={[
+              {
+                listKey: t("Amount Paid"),
+                listValue: currencyFormatter(context?.billing?.baseTotal || 0),
+                color: "#7BC67E",
+              },
+            ]}
+            ctaButton={
+              <Button
+                variant="text"
+                endIcon={<ArrowRightIcon fontSize="small" />}
+                onClick={() => {
+                  router.push({
+                    pathname: "/payouts",
+                    query: { tripId: context?._id },
+                  });
+                }}
+              >
+                {t("View Payouts")}
+              </Button>
+            }
+          />
+        </Grid>
+      </Grid>
+    </Box>
+  );
+};
