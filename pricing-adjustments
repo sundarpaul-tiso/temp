@@ -1,0 +1,417 @@
+import {
+  Box,
+  Card,
+  Divider,
+  Grid,
+  IconButton,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useTranslation } from "react-i18next";
+import { currencyFormatter } from "src/utils/currency-formatter";
+import { USER_TYPES } from "src/utils/constants";
+import { Pencil } from "src/icons/pencil";
+import { calculateTotalPriceDifferenceAmount } from "../utils/pricing-utils";
+import { useUserType } from "src/hooks/use-use-type";
+import { useMemo, useState } from "react";
+
+interface PricingAdjustmentProps {
+  data: any;
+  newPricingRequestAmount: number;
+  wajeehShare: string;
+  wajeehShareError: string;
+  baseFare: number;
+  onBaseFareChange: (value: string) => void;
+  onWajeehShareChange: (value: string) => void;
+}
+
+export const PricingAdjustment = ({
+  data,
+  newPricingRequestAmount,
+  wajeehShare,
+  wajeehShareError,
+  baseFare,
+  onBaseFareChange,
+  onWajeehShareChange,
+}: PricingAdjustmentProps) => {
+  const { t } = useTranslation();
+
+  const { userType } = useUserType();
+
+  const [isEditing, setIsEditing] = useState(false);
+
+  const isBookingCreated = data?.status === "deal-created";
+
+  const totalPrice = useMemo(() => {
+    if (isBookingCreated && userType === USER_TYPES.CARRIER) {
+      return data?.approvedAmount - data?.wajeehShare;
+    }
+
+    return baseFare;
+  }, [baseFare, wajeehShare, isBookingCreated, userType, data]);
+
+  return (
+    <Box sx={{ backgroundColor: "background.paper" }}>
+      <Box sx={{ p: { xs: 2, sm: 3 } }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          {t("Pricing Information")}
+        </Typography>
+
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
+          <Grid item xs={12}>
+            <Box sx={{ borderRadius: 1 }}>
+              <Card variant="outlined" sx={{ mb: 2 }}>
+                <Box
+                  sx={{
+                    p: { xs: 1.5, sm: 2 },
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: { xs: "column", sm: "row" },
+                      justifyContent: "space-between",
+                      alignItems: {
+                        xs: "flex-start",
+                        sm: "center",
+                      },
+                      mb: 1,
+                      gap: { xs: 0.5, sm: 0 },
+                    }}
+                  >
+                    <Typography variant="subtitle2">
+                      {t("Original Price")}
+                    </Typography>
+                    <TextField
+                      size="small"
+                      type="number"
+                      disabled={true}
+                      variant="standard"
+                      InputProps={{
+                        startAdornment: (
+                          <Typography
+                            color="textSecondary"
+                            variant="body2"
+                            sx={{ mr: 1 }}
+                          >
+                            {t("SAR")}
+                          </Typography>
+                        ),
+                      }}
+                      value={data?.originalBasePrice}
+                      sx={{
+                        width: { xs: "100%", sm: 120 },
+                        mr: 4.5,
+                      }}
+                    />
+                  </Box>
+                  <Divider sx={{ my: 1 }} />
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: { xs: "column", sm: "row" },
+                      justifyContent: "space-between",
+                      alignItems: {
+                        xs: "flex-start",
+                        sm: "center",
+                      },
+                      mb: 1,
+                      gap: { xs: 0.5, sm: 0 },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                      }}
+                    >
+                      <Typography variant="subtitle2">
+                        {t("Requested Price")}
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                      }}
+                    >
+                      <TextField
+                        data-testid="newPricingRequestAmount"
+                        size="small"
+                        name="newPricingRequestAmount"
+                        required
+                        type="number"
+                        disabled={true}
+                        onWheel={(event: any) => {
+                          event.preventDefault();
+                          event.target.blur();
+                        }}
+                        variant="standard"
+                        InputProps={{
+                          startAdornment: (
+                            <Typography
+                              color="textSecondary"
+                              variant="body2"
+                              sx={{ mr: 1 }}
+                            >
+                              {t("SAR")}
+                            </Typography>
+                          ),
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key == "." ||
+                            event.key === "+" ||
+                            event.key === "-"
+                          ) {
+                            event.preventDefault();
+                          }
+                        }}
+                        value={newPricingRequestAmount}
+                        sx={{ width: { xs: "100%", sm: 120 }, mr: 4.5 }}
+                      />
+                    </Box>
+                  </Box>
+
+                  {userType === USER_TYPES.ADMIN ||
+                    (isBookingCreated && (
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: { xs: "column", sm: "row" },
+                          justifyContent: "space-between",
+                          alignItems: {
+                            xs: "flex-start",
+                            sm: "center",
+                          },
+                          mb: 1,
+                          gap: { xs: 0.5, sm: 0 },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          <Typography variant="subtitle2">
+                            {isBookingCreated
+                              ? t("Approved Amount")
+                              : t("Base Fare")}
+                          </Typography>
+                        </Box>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          <TextField
+                            data-testid="baseFare"
+                            size="small"
+                            name="baseFare"
+                            required
+                            type="number"
+                            disabled={
+                              !isEditing ||
+                              !(userType === USER_TYPES.ADMIN) ||
+                              isBookingCreated
+                            }
+                            onWheel={(event: any) => {
+                              event.preventDefault();
+                              event.target.blur();
+                            }}
+                            variant="standard"
+                            InputProps={{
+                              startAdornment: (
+                                <Typography
+                                  color="textSecondary"
+                                  variant="body2"
+                                  sx={{ mr: 1 }}
+                                >
+                                  {t("SAR")}
+                                </Typography>
+                              ),
+                            }}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key == "." ||
+                                event.key === "+" ||
+                                event.key === "-"
+                              ) {
+                                event.preventDefault();
+                              }
+                            }}
+                            onChange={(e) => onBaseFareChange(e.target.value)}
+                            value={baseFare}
+                            sx={{ width: { xs: "100%", sm: 120 } }}
+                          />
+                          <IconButton
+                            size="small"
+                            onClick={() => setIsEditing(!isEditing)}
+                            disabled={
+                              !(userType === USER_TYPES.ADMIN) ||
+                              data.status === "deal-created"
+                            }
+                            sx={{
+                              color: "primary.main",
+                              "&:hover": {
+                                backgroundColor: "primary.light",
+                                color: "primary.contrastText",
+                              },
+                            }}
+                          >
+                            <Pencil fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    ))}
+                  {userType === USER_TYPES.ADMIN && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: { xs: "column", sm: "row" },
+                        justifyContent: "space-between",
+                        alignItems: {
+                          xs: "flex-start",
+                          sm: "center",
+                        },
+                        mb: 1,
+                        gap: { xs: 0.5, sm: 0 },
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                        }}
+                      >
+                        <Typography variant="subtitle2">
+                          {t("Wajeeh Share")}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                        }}
+                      >
+                        <TextField
+                          data-testid="wajeeh-share"
+                          size="small"
+                          name="wajeehShare"
+                          required
+                          type="number"
+                          disabled={
+                            data.status === "deal-created" ||
+                            userType !== USER_TYPES.ADMIN ||
+                            !isEditing
+                          }
+                          onWheel={(event: any) => {
+                            event.preventDefault();
+                            event.target.blur();
+                          }}
+                          InputProps={{
+                            startAdornment: (
+                              <Typography
+                                color="textSecondary"
+                                variant="body2"
+                                sx={{ mr: 1 }}
+                              >
+                                {t("SAR")}
+                              </Typography>
+                            ),
+                          }}
+                          variant="standard"
+                          error={Boolean(wajeehShareError)}
+                          helperText={wajeehShareError}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key == "." ||
+                              event.key === "+" ||
+                              event.key === "-"
+                            ) {
+                              event.preventDefault();
+                            }
+                          }}
+                          onChange={(e) => onWajeehShareChange(e.target.value)}
+                          value={wajeehShare}
+                          inputProps={{
+                            min: 0,
+                            max: 100,
+                            step: 0.01,
+                          }}
+                          sx={{
+                            width: { xs: "100%", sm: 120 },
+                          }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={() => setIsEditing(!isEditing)}
+                          disabled={
+                            !(userType === USER_TYPES.ADMIN) ||
+                            data.status === "deal-created"
+                          }
+                          sx={{
+                            color: "primary.main",
+                            "&:hover": {
+                              backgroundColor: "primary.light",
+                              color: "primary.contrastText",
+                            },
+                          }}
+                        >
+                          <Pencil fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  )}
+                  <Divider sx={{ my: 2 }} />
+
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: { xs: "column", sm: "row" },
+                      justifyContent: "space-between",
+                      alignItems: {
+                        xs: "flex-start",
+                        sm: "center",
+                      },
+                      gap: { xs: 0.5, sm: 0 },
+                    }}
+                  >
+                    <Typography variant="subtitle2">
+                      {t("Total price")}
+                    </Typography>
+                    <Typography variant="subtitle2">
+                      {currencyFormatter(totalPrice)} (
+                      {currencyFormatter(
+                        calculateTotalPriceDifferenceAmount(
+                          data?.originalBasePrice,
+                          baseFare,
+                          Number(wajeehShare),
+                          userType,
+                          data?.type,
+                          isBookingCreated
+                        )
+                      )}
+                      )
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Box>
+          </Grid>
+        </Grid>
+      </Box>
+    </Box>
+  );
+}; 
