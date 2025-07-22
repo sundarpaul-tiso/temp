@@ -1,0 +1,122 @@
+import { PRICING_REQUEST } from "src/types/pricing-request";
+import { USER_TYPES } from "src/utils/constants";
+
+export const calculatePriceDifference = (
+  originalPrice: number,
+  newPrice: number
+): number => {
+  return originalPrice - newPrice;
+};
+
+export const calculateTotalPriceDifferenceAmount = (
+  originalPrice: number,
+  baseFare: number,
+  wajeehShare: number,
+  userType?: string,
+  requestType?: string,
+  isBookingCreated?: boolean
+): number => {
+  if (isBookingCreated && requestType === PRICING_REQUEST.CARRIER_PRICING) {
+    if (userType === USER_TYPES.CARRIER) {
+      return baseFare - originalPrice;
+    }
+
+    return baseFare - originalPrice;
+  }
+  return baseFare + wajeehShare - originalPrice;
+};
+
+export const calculateTotalPriceWithoutVat = (
+  baseFare: number,
+  wajeehShare: number
+): number => {
+  return baseFare + wajeehShare;
+};
+
+export const calculatePercentageChange = (
+  originalPrice: number,
+  requestedPrice: number
+): number => {
+  if (!originalPrice || !requestedPrice) return 0;
+  return Math.abs((1 - requestedPrice / originalPrice) * 100);
+};
+
+export const getPriceDifferenceColor = (
+  originalPrice: number,
+  requestedPrice: number,
+  requestType: string
+): string => {
+  if (!originalPrice || !requestedPrice) return "text.secondary";
+
+  if (requestType === "pricing") {
+    // For better price requests, green if lower (savings), red if higher
+    return originalPrice > requestedPrice ? "success.main" : "error.main";
+  }
+
+  if (requestType === "carrier-pricing") {
+    // For carrier pricing requests, green if higher (premium), red if lower
+    return requestedPrice > originalPrice ? "success.main" : "error.main";
+  }
+
+  return "text.secondary";
+};
+
+export const isPriceValid = (
+  originalPrice: number,
+  requestedPrice: number,
+  requestType: string
+): boolean => {
+  if (!originalPrice || !requestedPrice) return false;
+
+  if (requestType === "estimate") {
+    return true;
+  }
+
+  // For better price requests (pricing type), requested price should be lower than original
+  if (requestType === "pricing") {
+    return originalPrice > requestedPrice;
+  }
+
+  // For carrier pricing requests (carrier-pricing type), requested price should be higher than original
+  if (requestType === "carrier-pricing") {
+    return requestedPrice > originalPrice;
+  }
+
+  return false;
+};
+
+export const isWajeehShareValid = (wajeehShare: string): boolean => {
+  if (!wajeehShare || wajeehShare === "") return false;
+  const numericWajeehShare = Number(wajeehShare);
+  return numericWajeehShare >= 0;
+};
+
+export const calculatePricingBreakdown = (
+  originalPrice: number,
+  requestedPrice: number,
+  numberOfTrucks: number,
+  wajeehShare: string,
+  vatRate = 15
+) => {
+  const wajeehShareAmount = (requestedPrice * Number(wajeehShare || 0)) / 100;
+  const vatAmount = (requestedPrice * vatRate) / 100;
+  const totalSingleTruckPrice = requestedPrice + vatAmount;
+  const totalBookingPrice = totalSingleTruckPrice * numberOfTrucks;
+
+  // Calculate old pricing breakdown
+  const oldVatAmount = (originalPrice * vatRate) / 100;
+  const oldTotalSingleTruckPrice = originalPrice + oldVatAmount;
+  const oldTotalBookingPrice = oldTotalSingleTruckPrice * numberOfTrucks;
+
+  return {
+    singleTruckOriginalPrice: originalPrice,
+    singleTruckRequestedPrice: requestedPrice,
+    wajeehShareAmount,
+    vatAmount,
+    totalSingleTruckPrice,
+    totalBookingPrice,
+    oldVatAmount,
+    oldTotalSingleTruckPrice,
+    oldTotalBookingPrice,
+  };
+};
