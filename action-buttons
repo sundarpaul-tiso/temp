@@ -1,0 +1,83 @@
+import { Alert, Box, Button } from "@mui/material";
+import { useTranslation } from "react-i18next";
+import { useUserType } from "src/hooks/use-use-type";
+import { PRICING_REQUEST } from "src/types/pricing-request";
+import { USER_TYPES } from "src/utils/constants";
+
+interface ActionButtonsProps {
+  data: any;
+  onApprove: () => void;
+  onReject: () => void;
+}
+
+export const ActionButtons = ({ data, onApprove, onReject }: ActionButtonsProps) => {
+  const { t } = useTranslation();
+  const { userType } = useUserType();
+
+  if (!data) return null;
+  if (data?.status === "deal-created") return null;
+
+  const { status } = data;
+
+  const onlyCanelProvision = () => {
+    if (
+      data.type === PRICING_REQUEST.SHIPPER_PRICING &&
+      userType === USER_TYPES.SHIPPER
+    ) {
+      return true;
+    }
+
+    if (
+      data.type === PRICING_REQUEST.CARRIER_PRICING &&
+      userType === USER_TYPES.CARRIER
+    ) {
+      return true;
+    }
+
+    return false;
+  };
+
+  if (onlyCanelProvision()) {
+    return (
+      <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
+        <Button variant="outlined" color="error" onClick={onReject}>
+          {t("Cancel")}
+        </Button>
+      </Box>
+    );
+  }
+
+  if (status === "new") {
+    return (
+      <Box>
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
+            gap: { xs: 1, sm: 2 },
+            width: "100%",
+          }}
+        >
+          <Button variant="outlined" color="error" onClick={onReject} fullWidth>
+            {userType === USER_TYPES.CARRIER ? t("Cancel") : t("Reject")}
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={onApprove}
+            fullWidth
+          >
+            {t("Approve")}
+          </Button>
+        </Box>
+        <Alert severity="info" sx={{ mt: 2 }}>
+          {t(
+            "If approved, a booking will be created at the requested price. If rejected, the request will be canceled."
+          )}
+        </Alert>
+      </Box>
+    );
+  }
+
+  return null;
+}; 
